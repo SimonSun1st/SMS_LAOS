@@ -5,6 +5,11 @@
 % while KEEPING the user's convention:
 %   e3 = -Gp3
 %   v3 =  Gpp3 / omega
+% Copyright (c) 2026 Yuchen Sun
+% All rights reserved.
+%
+% This code is provided for viewing and academic reference only.
+% No reuse, redistribution, modification, or commercial use is permitted without prior written permission from the author.
 % =========================================================================
 % FAST MODE:
 %   fast_mode = true
