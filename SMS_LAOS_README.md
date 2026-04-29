@@ -16,6 +16,12 @@ It can also save plots and selected-cycle CSV files.
 
 \---
 
+## License
+
+Copyright (c) 2026 Yuchen Sun. All rights reserved.
+
+This repository is made available for viewing and academic reference only. Reuse, redistribution, modification, or commercial use is not permitted without prior written permission.
+
 ## Input data format
 
 Each input `.dat` file should contain at least 3 numeric columns:
