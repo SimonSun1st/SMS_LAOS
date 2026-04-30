@@ -41,7 +41,7 @@ clear; clc; close all;
 set(0, 'DefaultFigureVisible', 'off');
 
 %% ========================= USER SETTINGS ================================
-folder_path = 'C:\Users\Sun_Y\Desktop\SSBR with crosslinker\RPA\FT-rheo\Cured\2509 20260413 Simon SSBR SSBR-STD';
+folder_path = 'folderpath';
 file_list = dir(fullfile(folder_path, '*.dat'));
 
 if isempty(file_list)
