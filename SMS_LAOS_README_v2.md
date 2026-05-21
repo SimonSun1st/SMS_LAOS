@@ -2,7 +2,7 @@
 
 ## Overview
 
-This MATLAB script processes `.dat` files for Large Amplitude Oscillatin Shear (LAOS) analysis and outputs harmonic, Chebyshev, intracycle, and stress-decomposition results.
+This MATLAB script processes `.dat` files for Large Amplitude Oscillatin Shear (LAOS) analysis and outputs Fourier Transform rheology and stress-decomposition results.
 
 The script is designed for LAOS data where each file contains time, strain, and stress columns. It automatically detects the fundamental frequency, selects steady cycles, performs Fourier analysis, calculates SMS-LAOS parameters, and optionally saves plots and selected-cycle data.
 
