@@ -77,13 +77,7 @@ The script follows this workflow:
 
 ### 1. Input folder
 
-Set the folder containing your `.dat` files:
-
-```matlab
-folder_path = 'C:\your\path\to\data';
-```
-
-Only `.dat` files in this folder are processed.
+Set `folder_path` to the folder containing your `.dat` files.
 
 ---
 

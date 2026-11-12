@@ -68,11 +68,7 @@ The script does the following:
 
 ### 1\. Input folder
 
-Set the folder containing your `.dat` files:
-
-```matlab
-folder\_path = 'C:\\your\\path\\to\\data';
-```
+Set `folder_path` to the folder containing your `.dat` files.
 
 \---
 
