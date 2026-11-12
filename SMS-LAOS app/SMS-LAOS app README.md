@@ -91,16 +91,24 @@ Open **Export**, select the outputs and click **Export results**. The app includ
 | `FT_LAOS/` | Batch `summary.csv`, per-file harmonic and spectrum CSVs and MATLAB results. |
 | `Stress_decomposition/` | Summary table and per-file MAT results. **Full** adds Excel, selected-cycle CSVs and native PNG/FIG plots. **Fast** saves the lighter package. **Include decomposed curve CSV** independently exports measured, elastic, viscous, reconstructed and residual stresses for replotting. |
 | `SPP/` | Per-file MAT results, cycle and harmonic tables. Average or evolution phase traces and sensitivity tables are included when available. |
-| `Waveforms/`, `Lissajous/` | Optional converted waveform data and measured Lissajous figures with the corresponding plotted samples. |
+| `Waveforms/`, `Lissajous/` | Optional exports include converted waveforms, Lissajous figures for the selected strains, and the samples used in each plot. |
 | Export root | `analysis_status.csv`, `settings_snapshot.json` and `manifest.json`. |
 
-### Lissajous figures at a target strain
+### Lissajous figures at selected strains
 
-1. In **Export**, enter **Target strain amplitude (%)** or click **Use selected file amplitude**. Matching uses each file’s measured amplitude. A target of 10% with a tolerance of 0.1 percentage points includes files from 9.9% to 10.1%.
-2. Choose separate figures or an overlay, then the entire record or the last N estimated periods. The latter selects a time window ending at the final measured sample. Measured offsets and open loops are retained.
-3. Select PNG, vector PDF or editable MATLAB FIG. Click **Export Lissajous only** to export directly from the waveform preview, even before running a method. To include the figures in a method export, check **Include Lissajous figures at a specific strain amplitude** and use **Export results**.
+1. In **Export → Strains to export**, choose **Check measured strains**. Tick the rows you want, for example the files near 5%, 10% and 20%. Each row shows its measured amplitude and filename. You can select individual replicates even when their amplitudes coincide. Alternatively, **Target amplitude and tolerance** selects all matches in a range (10% ± 0.1 percentage points includes 9.9% to 10.1%).
+2. Under **Lissajous plots**, check the figures you need. To compare measured and decomposed stress, run **Stress decomposition** on the chosen files and select these three plots:
 
-These figures plot **total measured stress** versus strain (%) and versus numerical strain rate (s⁻¹). For plots of the separated elastic and viscous stresses, use the SD output in `Stress_decomposition/`.
+   | Plot | Horizontal axis | Vertical axis |
+   | --- | --- | --- |
+   | **Total stress vs strain** | Strain (%) | Measured total stress (Pa) |
+   | **Elastic stress vs strain** | Strain (%) | Reconstructed elastic stress (Pa) |
+   | **Viscous stress vs strain rate** | Physical strain rate (s⁻¹) | Reconstructed viscous stress (Pa) |
+
+   **Total stress vs strain rate** is also available. If either component is selected, all curves for each file use the same SD samples, mean-centered strain and measured total stress. With only total-stress plots selected, the app uses the measured waveform preview and retains its offsets. These plots can be exported before analysis.
+3. Choose **Separate figures per file** for one set per checked row, or **Overlay matched files** for one overlay per plot type. Choose the entire available window or its last N cycles, and select PNG, vector PDF or editable MATLAB FIG. Click **Export Lissajous only**. To include these figures in a full export, check **Include Lissajous figures in result export** and click **Export results**.
+
+The figure CSV contains the samples used for plotting. For component plots, `_decomposition_curves.csv` records SD elapsed time, acquisition time, strain, strain rate, and the total, elastic and viscous stresses.
 
 ## Method references
 

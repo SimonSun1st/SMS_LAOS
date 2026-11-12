@@ -1,84 +1,128 @@
-function manifest = SMS_LAOS_app_export_lissajous(previews, folder, options)
-%SMS_LAOS_APP_EXPORT_LISSAJOUS Export measured loops at requested strain levels.
-% TargetStrainPercent and TolerancePercent are strain-amplitude percentage
-% points (target 10 and tolerance 0.5 selects 9.5--10.5% measured strain).
-% Empty TargetStrainPercent exports all supplied previews. No interpolation
-% between strain amplitudes, phase averaging, or synthetic loop is used.
+function manifest = SMS_LAOS_app_export_lissajous(previews, folder, options, sdResults)
+%SMS_LAOS_APP_EXPORT_LISSAJOUS Export selected stress loops and their samples.
+% Each SD result must correspond to its preview and its current input settings.
+% Total-only plots use the preview. Requesting any component puts every plot
+% on the native SD window and uses its measured, mean-centered total stress.
 if nargin<3,options=struct();end
-defaults=struct('TargetStrainPercent',[],'TolerancePercent',0.5,'Mode','per_file', ...
-    'CycleMode','last_n','LastNCycles',1,'FormatPNG',true,'FormatPDF',true,'FormatFIG',false);
+defaults=struct('TargetStrainPercent',[],'TolerancePercent',0.5,'SelectedSourcePaths',{{}}, ...
+    'Mode','per_file','CycleMode','last_n','LastNCycles',1, ...
+    'FormatPNG',true,'FormatPDF',true,'FormatFIG',false, ...
+    'IncludeStressStrain',true,'IncludeStressRate',true,'IncludeElasticStrain',false,'IncludeViscousRate',false);
 options=merge_options(defaults,options);validate_options(options);
 if isstruct(previews),previews=num2cell(previews);end
-if ~iscell(previews)||isempty(previews),error('MergedLAOS:LissajousEmpty','Load and preview data before exporting Lissajous curves.');end
+if isempty(previews)&&~isempty(options.SelectedSourcePaths)
+    error('MergedLAOS:LissajousSelection','The checked files have no available previews. Reload or retry their previews.');
+end
+if ~iscell(previews)||isempty(previews)
+    error('MergedLAOS:LissajousEmpty','Load and preview data before exporting Lissajous curves.');
+end
+useSD=options.IncludeElasticStrain||options.IncludeViscousRate;
+useTotal=options.IncludeStressStrain||options.IncludeStressRate;
+if nargin<4||isempty(sdResults),sdResults=cell(size(previews));end
+if useSD && (~iscell(sdResults)||numel(sdResults)~=numel(previews))
+    error('MergedLAOS:LissajousSD','Supply a Stress decomposition result for each selected file. Run Stress decomposition and retry.');
+end
 folder=absolute_path(char(folder));assert_empty(folder);
+selected=[];paths={};
+explicit=~isempty(options.SelectedSourcePaths);
+selectionMode='amplitude_tolerance';
+if explicit,selectionMode='selected_files';elseif isempty(options.TargetStrainPercent),selectionMode='all_previews';end
 required={'time','strain','stress','strainRate','frequencyHz','strainAmplitudePercent','source'};
-selected=[]; masks={};
 for k=1:numel(previews)
     P=previews{k};
-    if ~isstruct(P)||~isscalar(P)||~all(isfield(P,required)),error('MergedLAOS:LissajousPreview','Supply complete SMS_LAOS_app_preview results.');end
-    if isempty(options.TargetStrainPercent)||any(abs(P.strainAmplitudePercent-options.TargetStrainPercent(:))<=options.TolerancePercent)
-        check_source(P);selected(end+1)=k; %#ok<AGROW>
-        if strcmp(options.CycleMode,'all')
-            mask=true(size(P.time));
-        else
-            seconds=options.LastNCycles/P.frequencyHz;
-            if P.time(end)-P.time(1)<seconds*(1-1e-7)
-                error('MergedLAOS:LissajousWindow','%s has fewer than %d estimated periods. Reduce Last N cycles or use all data.',P.source.name,options.LastNCycles);
-            end
-            mask=P.time>=P.time(end)-seconds;
-        end
-        if nnz(mask)<3,error('MergedLAOS:LissajousWindow','The requested loop window contains fewer than 3 acquired samples.');end
-        masks{end+1}=mask; %#ok<AGROW>
+    if ~isstruct(P)||~isscalar(P)||~all(isfield(P,required))||~isfield(P.source,'path')
+        error('MergedLAOS:LissajousPreview','Supply complete SMS_LAOS_app_preview results.');
+    end
+    if explicit
+        match=ismember({P.source.path},options.SelectedSourcePaths) && ~ismember({P.source.path},paths);
+    else
+        match=isempty(options.TargetStrainPercent)||any(abs(P.strainAmplitudePercent-options.TargetStrainPercent(:))<=options.TolerancePercent);
+    end
+    if match
+        check_source(P);selected(end+1)=k;paths{end+1}=P.source.path; %#ok<AGROW>
+    end
+end
+if explicit
+    missing=setdiff(options.SelectedSourcePaths,paths,'stable');
+    if ~isempty(missing)
+        error('MergedLAOS:LissajousSelection','Selected file has no available preview: %s. Reload or retry its preview.',missing{1});
     end
 end
 if isempty(selected)
     error('MergedLAOS:LissajousNoMatch','No measured file amplitude falls within the requested strain tolerance. Choose an available amplitude or widen the tolerance.');
 end
+
+n=numel(selected);curves=cell(1,n);bases=cell(1,n);labels=cell(1,n);csvNames=cell(1,n);
+specs=plot_specs(options);
+records=repmat(struct('inputIndex',0,'sourcePath','','sourceName','','measuredStrainAmplitudePercent',NaN, ...
+    'frequencyHz',NaN,'startTime_s',NaN,'endTime_s',NaN,'sampleCount',0,'curveCSV','','decompositionCSV','', ...
+    'figures',{{}},'sourceSignature',struct(),'previewOptions',struct(),'unitConversion',struct(), ...
+    'dataSource','','window',struct(),'decompositionSettings',struct()),n,1);
+for j=1:n
+    k=selected(j);P=previews{k};row=k;
+    if isfield(P,'inputIndex'),row=P.inputIndex;end
+    if ~isscalar(row)||~isnumeric(row)||~isfinite(row)||row<1||row~=fix(row)
+        error('MergedLAOS:LissajousPreview','Preview inputIndex must be a positive integer.');
+    end
+    [~,stem]=fileparts(P.source.name);stem=regexprep(stem,'[^A-Za-z0-9._-]','_');if isempty(stem),stem='data';end
+    bases{j}=sprintf('%03d_%s_%spercent',row,stem(1:min(80,numel(stem))),number_slug(P.strainAmplitudePercent));
+    labels{j}=sprintf('%.5g%% | %s',P.strainAmplitudePercent,P.source.name);
+    r=records(j);r.inputIndex=row;r.sourcePath=P.source.path;r.sourceName=P.source.name;
+    r.measuredStrainAmplitudePercent=P.strainAmplitudePercent;r.sourceSignature=P.source.signature;
+    if isfield(P,'options'),r.previewOptions=P.options;end
+    if isfield(P,'unit_conversion'),r.unitConversion=P.unit_conversion;end
+    if useSD
+        R=sdResults{k};validate_sd(P,R);
+        mask=window_mask(R.time,R.freq_hz,options,P.source.name,R.n_cycles_used);
+        sourceTime=R.time_raw(R.selected_mask);
+        curves{j}=table(R.time(mask),R.strain(mask),100*R.strain(mask),R.gammadot(mask),R.stress(mask), ...
+            R.stress_elastic(mask),R.stress_viscous(mask),sourceTime(mask), ...
+            'VariableNames',{'Time_s','Strain','Strain_percent','StrainRate_per_s','Stress_Pa','ElasticStress_Pa','ViscousStress_Pa','SourceTime_s'});
+        csvNames{j}=[bases{j} '_decomposition_curves.csv'];
+        r.decompositionCSV=csvNames{j};r.frequencyHz=R.freq_hz;r.dataSource='stress_decomposition';
+        r.window=struct('cycleMode',options.CycleMode,'requestedLastNCycles',options.LastNCycles, ...
+            'analysisStart_s',R.t_start_use,'analysisEnd_s',R.t_end_use,'analysisCycles',R.n_cycles_used, ...
+            'sourceStart_s',sourceTime(find(mask,1,'first')),'sourceEnd_s',sourceTime(find(mask,1,'last')), ...
+            'timeOrigin','Time_s is elapsed from the first SD sample; SourceTime_s preserves acquisition time.');
+        r.decompositionSettings=R.settings;
+    else
+        mask=window_mask(P.time,P.frequencyHz,options,P.source.name,[]);
+        curves{j}=table(P.time(mask),P.strain(mask),100*P.strain(mask),P.strainRate(mask),P.stress(mask), ...
+            'VariableNames',{'Time_s','Strain','Strain_percent','StrainRate_per_s','Stress_Pa'});
+        csvNames{j}=[bases{j} '_curves.csv'];r.frequencyHz=P.frequencyHz;r.dataSource='preview';
+        r.window=struct('cycleMode',options.CycleMode,'requestedLastNCycles',options.LastNCycles, ...
+            'timeOrigin','Time_s preserves acquisition time.');
+    end
+    times=curves{j}.Time_s;r.startTime_s=times(1);r.endTime_s=times(end);r.sampleCount=numel(times);
+    if useTotal,r.curveCSV=csvNames{j};end
+    records(j)=r;
+end
+
 parent=fileparts(folder);if ~isfolder(parent),[ok,msg]=mkdir(parent);if ~ok,error('MergedLAOS:LissajousFolder','%s',msg);end,end
 stage=tempname(parent);mkdir(stage);cleanup=onCleanup(@()cleanup_stage(stage));
-records=repmat(struct('inputIndex',0,'sourcePath','','sourceName','','measuredStrainAmplitudePercent',NaN, ...
-    'frequencyHz',NaN,'startTime_s',NaN,'endTime_s',NaN,'sampleCount',0,'curveCSV','','figures',{{}}, ...
-    'sourceSignature',struct(),'previewOptions',struct(),'unitConversion',struct()),numel(selected),1);
-allFiles={};labels=cell(numel(selected),1);bases=cell(numel(selected),1);
-for j=1:numel(selected)
-    k=selected(j);P=previews{k};mask=masks{j};
-    [~,stem]=fileparts(P.source.name);stem=regexprep(stem,'[^A-Za-z0-9._-]','_');if isempty(stem),stem='data';end
-    base=sprintf('%03d_%s_%spercent',k,stem(1:min(80,numel(stem))),number_slug(P.strainAmplitudePercent));bases{j}=base;
-    csv=[base '_curves.csv'];
-    T=table(P.time(mask),P.strain(mask),100*P.strain(mask),P.strainRate(mask),P.stress(mask), ...
-        'VariableNames',{'Time_s','Strain','Strain_percent','StrainRate_per_s','Stress_Pa'});
-    writetable(T,fullfile(stage,csv));allFiles{end+1}=csv; %#ok<AGROW>
-    r=records(j);r.inputIndex=k;r.sourcePath=P.source.path;r.sourceName=P.source.name;
-    r.measuredStrainAmplitudePercent=P.strainAmplitudePercent;r.frequencyHz=P.frequencyHz;
-    times=P.time(mask);r.startTime_s=times(1);r.endTime_s=times(end);r.sampleCount=nnz(mask);r.curveCSV=csv;
-    r.sourceSignature=P.source.signature;if isfield(P,'options'),r.previewOptions=P.options;end
-    if isfield(P,'unit_conversion'),r.unitConversion=P.unit_conversion;end
-    records(j)=r;labels{j}=sprintf('%.5g%% | %s',P.strainAmplitudePercent,P.source.name);
-end
+for j=1:n,writetable(curves{j},fullfile(stage,csvNames{j}));end
+allFiles=csvNames;
 if strcmp(options.Mode,'overlay')
-    figFiles=render_pair(previews(selected),masks,labels,stage,'overlay',options);
+    figFiles=render_plots(curves,labels,stage,'overlay',options,specs);
     allFiles=[allFiles figFiles];
-    for j=1:numel(records),records(j).figures=figFiles;end
+    for j=1:n,records(j).figures=figFiles;end
 else
-    for j=1:numel(selected)
-        figFiles=render_pair(previews(selected(j)),masks(j),labels(j),stage,bases{j},options);
+    for j=1:n
+        figFiles=render_plots(curves(j),labels(j),stage,bases{j},options,specs);
         records(j).figures=figFiles;allFiles=[allFiles figFiles]; %#ok<AGROW>
     end
 end
 for k=selected,check_source(previews{k});end
-manifest=struct('schemaVersion',1,'application','SMS-LAOS', ...
+manifest=struct('schemaVersion',2,'application','SMS-LAOS', ...
     'createdUTC',char(datetime('now','TimeZone','UTC','Format','yyyy-MM-dd''T''HH:mm:ss''Z''')), ...
-    'outputFolder',folder,'options',options,'inputCount',numel(previews),'matchedCount',numel(selected), ...
-    'entries',records,'files',{[allFiles {'manifest.json'}]}, ...
+    'outputFolder',folder,'options',options,'selectionMode',selectionMode,'inputCount',numel(previews), ...
+    'matchedCount',n,'plots',specs,'entries',records,'files',{[allFiles {'manifest.json'}]}, ...
     'notes',{{ ...
-    'Only measured files matching the requested strain-amplitude tolerance are included; no interpolation between strain levels.', ...
-    'TolerancePercent is an absolute strain-amplitude percentage-point tolerance, not a relative percentage.', ...
-    'The file amplitude is the median half peak-to-peak amplitude across complete estimated periods; inspect variable-amplitude records separately.', ...
-    'Last N cycles uses a frequency-estimated time window ending at the final measured sample. It is not a phase-aligned cycle average or a stationarity selection.', ...
-    'Plots retain the measured DC offsets after shared unit conversion and are not forcibly closed; CSV contains the exact plotted sample arrays.', ...
-    'Elastic plot x is measured strain in percent; viscous plot x is gradient(strain,time) in s^-1. Stress is Pa.', ...
-    'Numerical strain rate is unsmoothed and may amplify measurement noise.', ...
-    'Preview frequency and time windows are independent of the FT/stress-decomposition and SPP method selections.'}});
+    'File selection uses checked source paths or measured preview amplitudes within the specified absolute percentage-point tolerance.', ...
+    'Total-only plots retain measured offsets, original timestamps and preview strain rate.', ...
+    'If an SD component is selected, all curves for that file share its SD analysis samples and frequency. Total stress and strain are the mean-centered measured values on the SD window.', ...
+    'Component stresses are SD first- and third-order reconstructions. The viscous abscissa is the physical strain rate in s^-1.', ...
+    'Last N uses the end of the active preview or SD window; no loop is forcibly closed. CSV columns contain the plotted samples.'}});
 write_json(fullfile(stage,'manifest.json'),manifest);
 assert_empty(folder);
 if ~isfolder(folder),[ok,msg]=mkdir(folder);if ~ok,error('MergedLAOS:LissajousFolder','%s',msg);end,end
@@ -90,24 +134,69 @@ for k=1:numel(manifest.files)
 end
 end
 
-function files=render_pair(previews,masks,labels,folder,base,o)
-files={};colors=lines(numel(previews));
-for kind={'elastic','viscous'}
+function validate_sd(P,R)
+required={'source','settings','time','time_raw','selected_mask','strain','gammadot','stress','stress_elastic','stress_viscous', ...
+    'freq_hz','n_cycles_used','t_start_use','t_end_use'};
+if isempty(R)||~isstruct(R)||~isscalar(R)||~all(isfield(R,required))||~SMS_LAOS_app_source_current(R.source)|| ...
+        ~strcmp(R.source.path,P.source.path)||R.source.bytes~=P.source.signature.Bytes||R.source.datenum~=P.source.signature.ModifiedDatenum
+    error('MergedLAOS:LissajousSD','%s needs a current Stress decomposition result. Select the file, run Stress decomposition, then export again.',P.source.name);
+end
+if isfield(R,'input_settings')&&isfield(P,'options')
+    for field=fieldnames(R.input_settings)'
+        key=field{1};
+        if ~isfield(P.options,key)||~isequaln(R.input_settings.(key),P.options.(key))
+            error('MergedLAOS:LissajousSD','Input settings for %s no longer match its Stress decomposition result. Run Stress decomposition again.',P.source.name);
+        end
+    end
+end
+end
+
+function mask=window_mask(t,frequency,o,name,sdCycles)
+if strcmp(o.CycleMode,'all')
+    mask=true(size(t));
+elseif ~isempty(sdCycles)&&o.LastNCycles==sdCycles
+    % An integral SD selection can end one sample short of its nominal duration.
+    mask=true(size(t));
+else
+    seconds=o.LastNCycles/frequency;
+    if (~isempty(sdCycles)&&o.LastNCycles>sdCycles)||t(end)-t(1)<seconds*(1-1e-7)
+        error('MergedLAOS:LissajousWindow','%s has fewer than %d periods in its active window. Reduce Last N cycles or use all data.',name,o.LastNCycles);
+    end
+    mask=t>=t(end)-seconds;
+end
+if nnz(mask)<3,error('MergedLAOS:LissajousWindow','The requested loop window contains fewer than 3 samples.');end
+end
+
+function specs=plot_specs(o)
+specs=struct('option',{'IncludeStressStrain','IncludeStressRate','IncludeElasticStrain','IncludeViscousRate'}, ...
+    'suffix',{'elastic','viscous','elastic_stress_strain','viscous_stress_strain_rate'}, ...
+    'title',{'Total stress vs strain','Total stress vs strain rate','Elastic stress vs strain','Viscous stress vs strain rate'}, ...
+    'xColumn',{'Strain_percent','StrainRate_per_s','Strain_percent','StrainRate_per_s'}, ...
+    'yColumn',{'Stress_Pa','Stress_Pa','ElasticStress_Pa','ViscousStress_Pa'}, ...
+    'xLabel',{'Strain (%)','Strain rate (s^{-1})','Strain (%)','Strain rate (s^{-1})'}, ...
+    'yLabel',{'Total stress (Pa)','Total stress (Pa)','Elastic stress (Pa)','Viscous stress (Pa)'});
+if o.IncludeElasticStrain||o.IncludeViscousRate
+    % Native SD total and separated stress should be distinguishable by filename.
+    specs(1).suffix='total_stress_strain';
+    specs(2).suffix='total_stress_strain_rate';
+end
+specs=specs(logical([o.IncludeStressStrain o.IncludeStressRate o.IncludeElasticStrain o.IncludeViscousRate]));
+end
+
+function files=render_plots(curves,labels,folder,base,o,specs)
+files={};colors=lines(numel(curves));
+for spec=specs
     fig=figure('Visible','off','Color','w','Position',[100 100 850 650]);
     c=onCleanup(@()delete(fig));
     ax=axes(fig,'Position',[.14 .17 .8 .73],'FontName','Arial','FontSize',12,'Box','on','LineWidth',1,'NextPlot','add');
-    for j=1:numel(previews)
-        P=previews{j};mask=masks{j};
-        if strcmp(kind{1},'elastic'),x=100*P.strain(mask);else,x=P.strainRate(mask);end
-        plot(ax,x,P.stress(mask),'LineWidth',1.4,'Color',colors(j,:),'DisplayName',labels{j});
+    for j=1:numel(curves)
+        T=curves{j};plot(ax,T.(spec.xColumn),T.(spec.yColumn),'LineWidth',1.4,'Color',colors(j,:),'DisplayName',labels{j});
     end
-    if strcmp(kind{1},'elastic'),xlabel(ax,'Strain (%)');title(ax,'Elastic Lissajous');
-    else,xlabel(ax,'Strain rate (s^{-1})');title(ax,'Viscous Lissajous');end
-    ylabel(ax,'Stress (Pa)');grid(ax,'on');ax.GridAlpha=.12;
-    legend(ax,'Location','best','Interpreter','none','FontSize',10);axis(ax,'padded');
+    xlabel(ax,spec.xLabel);ylabel(ax,spec.yLabel);title(ax,spec.title);
+    grid(ax,'on');ax.GridAlpha=.12;legend(ax,'Location','best','Interpreter','none','FontSize',10);axis(ax,'padded');
     for format={'PNG','PDF','FIG'}
         if ~o.(['Format' format{1}]),continue,end
-        filename=[base '_' kind{1} '.' lower(format{1})];path=fullfile(folder,filename);
+        filename=[base '_' spec.suffix '.' lower(format{1})];path=fullfile(folder,filename);
         if strcmp(format{1},'PNG')
             exportgraphics(fig,path,'Resolution',300);
         elseif strcmp(format{1},'PDF')
@@ -128,6 +217,19 @@ for f=fieldnames(s)'
     o.(f{1})=s.(f{1});
 end
 o.Mode=char(o.Mode);o.CycleMode=char(o.CycleMode);
+paths=o.SelectedSourcePaths;
+if isempty(paths)
+    paths={};
+elseif isstring(paths)
+    if any(ismissing(paths),'all'),error('MergedLAOS:LissajousSelection','Choose valid source paths.');end
+    paths=cellstr(paths);
+elseif ischar(paths)&&isrow(paths)
+    paths={paths};
+end
+if ~iscellstr(paths)||(~isempty(paths)&&~isvector(paths))||any(cellfun(@isempty,paths))
+    error('MergedLAOS:LissajousSelection','SelectedSourcePaths must list source file paths.');
+end
+o.SelectedSourcePaths=unique(reshape(paths,1,[]),'stable');
 end
 function validate_options(o)
 if ~isnumeric(o.TargetStrainPercent)||any(~isfinite(o.TargetStrainPercent),'all')||any(o.TargetStrainPercent<=0,'all')
@@ -141,6 +243,15 @@ if ~any(strcmp(o.Mode,{'per_file','overlay'}))||~any(strcmp(o.CycleMode,{'last_n
 end
 if ~isnumeric(o.LastNCycles)||~isscalar(o.LastNCycles)||~isfinite(o.LastNCycles)||o.LastNCycles<1||o.LastNCycles~=fix(o.LastNCycles)
     error('MergedLAOS:LissajousCycles','LastNCycles must be a positive integer.');
+end
+for field={'IncludeStressStrain','IncludeStressRate','IncludeElasticStrain','IncludeViscousRate'}
+    v=o.(field{1});
+    if ~(islogical(v)||isnumeric(v))||~isscalar(v)||~ismember(v,[0 1])
+        error('MergedLAOS:LissajousPlots','Plot switches must be scalar true/false values.');
+    end
+end
+if ~(o.IncludeStressStrain||o.IncludeStressRate||o.IncludeElasticStrain||o.IncludeViscousRate)
+    error('MergedLAOS:LissajousPlots','Select at least one Lissajous plot.');
 end
 for field={'FormatPNG','FormatPDF','FormatFIG'}
     v=o.(field{1});

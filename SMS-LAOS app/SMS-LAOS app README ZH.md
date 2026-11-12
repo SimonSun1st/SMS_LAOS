@@ -91,11 +91,21 @@ SPP 直接使用实测应力。局部平面模型为 σ ≈ G′ₜ γ + G″ₜ
 | `Waveforms/`、`Lissajous/` | 可选的实测波形、数值应变率，以及目标应变下的图形与对应绘图数据。 |
 | 导出根目录 | `analysis_status.csv` 记录逐文件状态，`settings_snapshot.json` 保存设置，`manifest.json` 列出导出内容。 |
 
-例如，要比较 **10% 应变幅值**附近的实测回线，可在加载文件并确认单位后直接操作。
+### 勾选应变幅值并导出李萨如图
 
-1. 在 **Target strain amplitude (%)** 输入 `10`，在 **Tolerance (percentage points)** 输入 `0.1`，匹配实测幅值 9.9% 至 10.1% 的文件。也可用 **Use selected file amplitude** 填入选中文件的幅值。
-2. 选择逐文件绘图或叠加绘图，再选择全部实测数据或最后 N 个估计周期。末 N 圈按预览频率截取时间窗，保留原始采样点。
-3. 选择 PNG、PDF 或 MATLAB FIG，点击 **Export Lissajous only**。两张图分别以应变和数值应变率为横轴，纵轴均为实测总应力；配套 CSV 保存实际绘图点。要查看分解后的弹性应力和黏性应力，应运行 SD 并导出分解曲线。
+1. 在 **Export → Strains to export** 选择 **Check measured strains**。按表中显示的实测应变幅值和文件名勾选所需行，例如只选接近 5%、10% 和 20% 的三个文件。即使两个文件的幅值相同，也可以只选其中一个。如果要导出一个范围内的全部文件，选择 **Target amplitude and tolerance**。例如，目标 10%、容差 0.1 个百分点会匹配 9.9% 至 10.1%。
+2. 在 **Lissajous plots** 勾选需要的图。若要比较总应力及其分量，先对所选文件运行 **Stress decomposition**，然后勾选以下三项：
+
+   | 图形 | 横轴 | 纵轴 |
+   | --- | --- | --- |
+   | **Total stress vs strain** | 应变（%） | 实测总应力（Pa） |
+   | **Elastic stress vs strain** | 应变（%） | 重建的弹性应力（Pa） |
+   | **Viscous stress vs strain rate** | 实际应变率（s⁻¹） | 重建的黏性应力（Pa） |
+
+   也可选择 **Total stress vs strain rate**。只要勾选弹性或黏性分量，同一文件的各张图就使用相同的 SD 采样点，应变和实测总应力按该分析窗口去均值。只勾选总应力图时，使用保留原始偏置的波形预览，可在运行分析方法前导出。
+3. 选择 **Separate figures per file** 可为每个勾选文件分别出图，选择 **Overlay matched files** 可将多个文件按图形类型叠加。选择完整窗口或最后 N 圈，以及 PNG、矢量 PDF 或可编辑 MATLAB FIG，再点击 **Export Lissajous only**。要随整批结果一起导出，可勾选 **Include Lissajous figures in result export** 后点击 **Export results**。
+
+配套 CSV 保存实际绘图点。分量图的 `_decomposition_curves.csv` 同时记录 SD 窗口内的相对时间、原采集时间、应变、应变率，以及总应力、弹性应力和黏性应力。
 
 ## 方法文献
 

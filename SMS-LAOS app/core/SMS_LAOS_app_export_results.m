@@ -1,7 +1,8 @@
 function manifest=SMS_LAOS_app_export_results(entries,ftEntries,varargin)
 %SMS_LAOS_APP_EXPORT_RESULTS Export requested, current analyses without rerunning.
 % Native SMS/SPP exports retain their original numerical result structures.
-if numel(varargin)==4
+hasSeparateSD=numel(varargin)==4;
+if hasSeparateSD
     sdEntries=varargin{1};sppEntries=varargin{2};folder=varargin{3};options=varargin{4};
 elseif numel(varargin)==3
     % Compatibility with archived first-release validation scripts.
@@ -73,11 +74,27 @@ if any(spInclude)
     modules.SPP=SMS_LAOS_app_export_SPP_v5(exportEntries,fullfile(stage,'SPP'));
 end
 if options.IncludeLissajous
-    modules.Lissajous=SMS_LAOS_app_export_lissajous(previews,fullfile(stage,'Lissajous'),options.Lissajous);
-    for k=1:numel(previews)
-        if isempty(options.Lissajous.TargetStrainPercent)||any(abs(previews{k}.strainAmplitudePercent-options.Lissajous.TargetStrainPercent(:))<=options.Lissajous.TolerancePercent)
-            sources{end+1}=previews{k}.source; %#ok<AGROW>
+    o=options.Lissajous;
+    components=(isfield(o,'IncludeElasticStrain') && o.IncludeElasticStrain) || ...
+               (isfield(o,'IncludeViscousRate') && o.IncludeViscousRate);
+    if components || isfield(o,'SelectedSourcePaths')
+        % Let the plot writer check every matched source, including stale ones.
+        plotRows=find(~cellfun(@isempty,{entries.Preview}));
+    else
+        plotRows=find(strcmp({records.previewStatus},'current'));
+    end
+    plotPreviews={entries(plotRows).Preview};
+    plotSD=cell(size(plotPreviews));
+    for j=1:numel(plotRows)
+        k=plotRows(j);
+        plotPreviews{j}.inputIndex=k;
+        if hasSeparateSD && ismember(records(k).StressStatus,{'ok','warning'})
+            plotSD{j}=sdEntries(k).Result;
         end
+    end
+    modules.Lissajous=SMS_LAOS_app_export_lissajous(plotPreviews,fullfile(stage,'Lissajous'),o,plotSD);
+    for k=reshape([modules.Lissajous.entries.inputIndex],1,[])
+        sources{end+1}=entries(k).Preview.source; %#ok<AGROW>
     end
 end
 for k=1:numel(sources)

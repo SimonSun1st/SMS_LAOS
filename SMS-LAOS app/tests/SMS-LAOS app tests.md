@@ -18,5 +18,6 @@ All suites listed below generate their own inputs. None requires access to an ex
 | `SMS_LAOS_app_test_units` | Seven input-unit combinations, numerical agreement with the reference routines, and a cycle-trimming boundary case. |
 | `SMS_LAOS_app_test_export` | Method-specific exports and their saved results. |
 | `SMS_LAOS_app_test_preview_export` | Measured waveforms, strain rate, and Lissajous exports. |
+| `SMS_LAOS_app_test_lissajous_components` | Reopens individual and overlay figures, compares their lines and CSVs with the measured and decomposed arrays, and checks exact file selections and missing or stale SD results. |
 
 The workflow and export suites accept a new output directory as an argument, for example `report = SMS_LAOS_app_test_workflow(tempname);`. Check `report.Passed` for their overall result.

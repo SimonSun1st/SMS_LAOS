@@ -164,6 +164,9 @@ classdef SMS_LAOS_app_window < handle
             app.FT.setInputSettings(next);app.SD.setInputSettings(next);app.SPP.setInputSettings(next);
             app.InputSettings=next;app.populateInputControls();
             app.resetBatchProgress();
+            % The new column mapping or units may represent different strain levels.
+            app.Controls.StrainChoices.Data=cell(0,3);
+            app.Controls.StrainChoices.UserData=cell(0,1);
             % Discard every old-unit preview before allowing Stop during the rebuild.
             for k=1:numel(app.Entries)
                 app.Entries(k).Preview=[];app.Entries(k).PreviewError='';
@@ -260,6 +263,7 @@ classdef SMS_LAOS_app_window < handle
             spp=isequal(page,app.Controls.SPPTab);
             app.FT.refresh(indices,false);app.SD.refresh(indices,stress);app.SPP.refresh(indices,spp);
             app.refreshTable(indices);
+            app.refreshStrainChoices();
             if isequal(page,app.Controls.InputTab)
                 app.renderPreview();
             elseif isequal(page,app.Controls.FTTab)
@@ -281,7 +285,7 @@ classdef SMS_LAOS_app_window < handle
             app.refresh();
             app.setStatus('Exporting selected methods and requested figures…');drawnow;
             options=struct('Methods',app.methodsSelected(),'IncludeWaveforms',app.Controls.ExportWaveforms.Value, ...
-                'IncludeLissajous',app.Controls.ExportLissajous.Value,'Lissajous',app.lissajousOptions(), ...
+                'IncludeLissajous',app.Controls.ExportLissajous.Value,'Lissajous',app.lissajousOptions(app.Controls.ExportLissajous.Value), ...
                 'InputSettings',app.InputSettings,'SDOptions',struct('fast_mode',strcmp(app.Controls.ExportMode.Value,'fast'), ...
                 'save_curve_csv',app.Controls.ExportCurves.Value));
             manifest=SMS_LAOS_app_export_results(app.Entries,app.FT.Entries,app.SD.Entries,app.SPP.Entries,folder,options);
@@ -295,9 +299,20 @@ classdef SMS_LAOS_app_window < handle
             if nargin<3,options=app.lissajousOptions();end
             finish=app.startRun(true); %#ok<NASGU>
             app.loadPreviews(1:numel(app.Entries));
-            previews={app.Entries.Preview};previews=previews(~cellfun(@isempty,previews));
-            app.refreshTable();app.setStatus('Exporting measured Lissajous curves…');drawnow;
-            manifest=SMS_LAOS_app_export_lissajous(previews,folder,options);
+            rows=find(~cellfun(@isempty,{app.Entries.Preview}));
+            app.SD.refresh(rows,false);
+            previews={app.Entries(rows).Preview};
+            sdResults=cell(size(previews));
+            for j=1:numel(rows)
+                k=rows(j);
+                previews{j}.inputIndex=k;
+                d=app.SD.Entries(k);
+                if app.Entries(k).StressDone && ismember(d.Status,{'ok','warning'})
+                    sdResults{j}=d.Result;
+                end
+            end
+            app.refreshTable();app.setStatus('Exporting Lissajous curves…');drawnow;
+            manifest=SMS_LAOS_app_export_lissajous(previews,folder,options,sdResults);
             app.LastExport=char(folder);app.setStatus(['Lissajous export complete: ' char(folder)]);
         end
 
@@ -420,23 +435,42 @@ classdef SMS_LAOS_app_window < handle
         end
 
         function buildExport(app)
-            g=uigridlayout(app.Controls.ExportTab,[18 2]);g.ColumnWidth={270,'1x'};
-            g.RowHeight={30,32,29,29,36,32,32,32,32,32,32,30,40,40,24,52,26,'1x'};g.Scrollable='on';g.Padding=[24 16 24 16];
+            g=uigridlayout(app.Controls.ExportTab,[17 2]);g.ColumnWidth={270,'1x'};
+            g.RowHeight={30,32,29,29,36,32,30,100,58,40,32,32,30,40,40,40,'1x'};g.Scrollable='on';g.Padding=[24 16 24 16];
             label=uilabel(g,'Text','Export results and figures','FontSize',21,'FontWeight','bold');label.Layout.Column=[1 2];
             uilabel(g,'Text','Analysis output package');
             app.Controls.ExportMode=uidropdown(g,'Items',{'Full — data, Excel and native SD figures','Fast — data only'},'ItemsData',{'full','fast'},'Value','full');
             app.Controls.ExportCurves=uicheckbox(g,'Text','Include decomposed curve CSV','Value',true);app.Controls.ExportCurves.Layout.Column=[1 2];
             app.Controls.ExportWaveforms=uicheckbox(g,'Text','Include loaded waveform / strain-rate CSV','Value',true);app.Controls.ExportWaveforms.Layout.Column=[1 2];
             hint=uilabel(g,'Text','Exports include current results for the checked methods. Each method retains its own settings and result snapshot.','WordWrap','on');hint.Layout.Column=[1 2];
-            app.Controls.ExportLissajous=uicheckbox(g,'Text','Include Lissajous figures at a specific strain amplitude','Value',false);app.Controls.ExportLissajous.Layout.Column=[1 2];
-            uilabel(g,'Text','Target strain amplitude (%)');app.Controls.TargetStrain=uieditfield(g,'numeric','Value',1,'Limits',[eps Inf]);
-            uilabel(g,'Text','Tolerance (percentage points)');app.Controls.StrainTolerance=uieditfield(g,'numeric','Value',.1,'Limits',[0 Inf]);
-            app.button(g,'Use selected file amplitude',@()app.useSelectedAmplitude());
-            app.Controls.MatchInfo=uilabel(g,'Text','Matches use measured amplitude, not the filename.','WordWrap','on');
+            app.Controls.ExportLissajous=uicheckbox(g,'Text','Include Lissajous figures in result export','Value',false);app.Controls.ExportLissajous.Layout.Column=[1 2];
+            uilabel(g,'Text','Strains to export');
+            app.Controls.StrainMatchMode=uidropdown(g,'Items',{'Target amplitude and tolerance','Check measured strains'}, ...
+                'ItemsData',{'target','checked'},'Value','target','ValueChangedFcn',@(~,~)app.showStrainMatchMode());
+            picker=uigridlayout(g,[1 1]);picker.Layout.Row=8;picker.Layout.Column=[1 2];picker.Padding=[0 0 0 0];
+            target=uigridlayout(picker,[3 2]);target.Layout.Row=1;target.Layout.Column=1;
+            target.ColumnWidth={270,'1x'};target.RowHeight={'1x','1x','1x'};target.RowSpacing=4;target.Padding=[0 0 0 0];
+            uilabel(target,'Text','Target strain amplitude (%)');app.Controls.TargetStrain=uieditfield(target,'numeric','Value',1,'Limits',[eps Inf]);
+            uilabel(target,'Text','Tolerance (percentage points)');app.Controls.StrainTolerance=uieditfield(target,'numeric','Value',.1,'Limits',[0 Inf]);
+            app.button(target,'Use selected file amplitude',@()app.useSelectedAmplitude());
+            app.Controls.MatchInfo=uilabel(target,'Text','Files are matched by measured strain amplitude.','WordWrap','on');
+            choices=uitable(picker,'Data',cell(0,3),'ColumnName',{'Export','Measured strain (%)','File'}, ...
+                'ColumnEditable',[true false false],'ColumnFormat',{'logical','char','char'}, ...
+                'ColumnWidth',{68,165,'auto'},'RowName',{},'UserData',cell(0,1),'Visible','off', ...
+                'Tooltip','Check the files to export. Each row uses the measured amplitude from its waveform.');
+            choices.Layout.Row=1;choices.Layout.Column=1;app.Controls.StrainChoices=choices;
+            uilabel(g,'Text','Lissajous plots');
+            plots=uigridlayout(g,[2 2]);plots.Padding=[0 0 0 0];plots.RowHeight={24,24};
+            app.Controls.IncludeStressStrain=uicheckbox(plots,'Text','Total stress vs strain','Value',true);
+            app.Controls.IncludeStressRate=uicheckbox(plots,'Text','Total stress vs strain rate','Value',true);
+            app.Controls.IncludeElasticStrain=uicheckbox(plots,'Text','Elastic stress vs strain','Value',false);
+            app.Controls.IncludeViscousRate=uicheckbox(plots,'Text','Viscous stress vs strain rate','Value',false);
+            plotHint=uilabel(g,'Text','Total-only plots use the measured waveform. For elastic or viscous stress, run Stress decomposition on the matching files. All selected plots then use the same mean-centered SD analysis window.','WordWrap','on');
+            plotHint.Layout.Column=[1 2];
             uilabel(g,'Text','Lissajous figure layout');app.Controls.LissajousMode=uidropdown(g,'Items',{'Separate figures per file','Overlay matched files'},'ItemsData',{'per_file','overlay'});
             window=uigridlayout(g,[1 2]);window.Layout.Column=[1 2];window.ColumnWidth={270,'1x'};window.Padding=[0 0 0 0];
             uilabel(window,'Text','Displayed time window');wg=uigridlayout(window,[1 3]);wg.ColumnWidth={'1x',110,75};wg.Padding=[0 0 0 0];
-            app.Controls.CycleMode=uidropdown(wg,'Items',{'Last N estimated cycles','All measured data'},'ItemsData',{'last_n','all'});
+            app.Controls.CycleMode=uidropdown(wg,'Items',{'Last N estimated cycles','Entire available window'},'ItemsData',{'last_n','all'});
             uilabel(wg,'Text','Number of cycles');app.Controls.LastNCycles=uieditfield(wg,'numeric','Value',3,'Limits',[1 Inf],'RoundFractionalValues','on');
             formats=uigridlayout(g,[1 4]);formats.Layout.Column=[1 2];formats.Padding=[0 0 0 0];
             uilabel(formats,'Text','Lissajous formats');app.Controls.PNG=uicheckbox(formats,'Text','PNG','Value',true);app.Controls.PDF=uicheckbox(formats,'Text','PDF','Value',true);app.Controls.FIG=uicheckbox(formats,'Text','MATLAB FIG','Value',false);
@@ -445,10 +479,46 @@ classdef SMS_LAOS_app_window < handle
             app.button(g,'Save current workspace view…',@()app.chooseView());
             app.Controls.ViewPage=uidropdown(g,'Items',{'Data & units','FT-LAOS','Stress decomposition','SPP','Export'}, ...
                 'ItemsData',{'InputTab','FTTab','StressTab','SPPTab','ExportTab'},'Value','InputTab','Tooltip','Choose the page to capture as a PNG workspace snapshot.');
-            note=uilabel(g,'Text',{'All result tables use explicit SI units; original input units and conversion factors are saved.','Lissajous CSV contains the exact plotted samples. Last N cycles is an estimated time window, not a phase average.','Full / Fast controls the native SD package. PNG / PDF / FIG above controls the requested Lissajous figures.'},'WordWrap','on');note.Layout.Row=[15 18];note.Layout.Column=[1 2];
-            for n={'ExportMode','ExportCurves','ExportWaveforms','ExportLissajous','TargetStrain','StrainTolerance','LissajousMode','CycleMode','LastNCycles','PNG','PDF','FIG','ViewPage'}
+            note=uilabel(g,'Text','Lissajous CSV files contain the plotted samples. Strain is plotted in percent, strain rate in s⁻¹ and stress in Pa.','WordWrap','on');note.Layout.Row=16;note.Layout.Column=[1 2];
+            for n={'ExportMode','ExportCurves','ExportWaveforms','ExportLissajous','TargetStrain','StrainTolerance','IncludeStressStrain','IncludeStressRate','IncludeElasticStrain','IncludeViscousRate','LissajousMode','CycleMode','LastNCycles','PNG','PDF','FIG','ViewPage'}
                 app.ActionControls{end+1}=app.Controls.(n{1});
             end
+            app.ActionControls{end+1}=choices;
+            app.ActionControls{end+1}=app.Controls.StrainMatchMode;
+        end
+
+        function showStrainMatchMode(app)
+            useList=strcmp(app.Controls.StrainMatchMode.Value,'checked');
+            app.Controls.TargetStrain.Parent.Visible=~useList;
+            choices=app.Controls.StrainChoices;
+            picker=choices.Parent;
+            choices.Visible=useList;
+            if useList
+                picker.Parent.RowHeight{picker.Layout.Row}=165;
+            else
+                picker.Parent.RowHeight{picker.Layout.Row}=100;
+            end
+        end
+
+        function refreshStrainChoices(app)
+            choices=app.Controls.StrainChoices;
+            % Store checked file identities across sorting, additions and removals.
+            checkedPaths=choices.UserData(cell2mat(choices.Data(:,1)));
+            ready=find(~cellfun(@isempty,{app.Entries.Preview}));
+            levels=arrayfun(@(i)app.Entries(i).Preview.strainAmplitudePercent,ready);
+            [levels,order]=sort(levels(:));
+            entries=app.Entries(ready(order));
+            paths=reshape({entries.Path},[],1);
+            names=reshape({entries.Name},[],1);
+            if numel(unique(names))<numel(names)
+                [~,~,group]=unique(names);
+                counts=accumarray(group,1);
+                duplicates=counts(group)>1;
+                names(duplicates)=paths(duplicates);
+            end
+            rows=[num2cell(ismember(paths,checkedPaths)),cellstr(compose('%.9g',levels)),names];
+            choices.UserData=paths;
+            if ~isequal(choices.Data,rows),choices.Data=rows;end
         end
 
         function inputDrop(app,g,row,pair,label,name,items,data)
@@ -709,10 +779,20 @@ classdef SMS_LAOS_app_window < handle
             app.SD.Tabs.Visible=available;
             app.SD.Controls.Banner.Visible=app.Controls.UseStress.Value;
         end
-        function o=lissajousOptions(app)
+        function o=lissajousOptions(app,requireSelection)
+            if nargin<2,requireSelection=true;end
             c=app.Controls;o=struct('TargetStrainPercent',c.TargetStrain.Value,'TolerancePercent',c.StrainTolerance.Value, ...
                 'Mode',c.LissajousMode.Value,'CycleMode',c.CycleMode.Value,'LastNCycles',c.LastNCycles.Value, ...
+                'IncludeStressStrain',c.IncludeStressStrain.Value,'IncludeStressRate',c.IncludeStressRate.Value, ...
+                'IncludeElasticStrain',c.IncludeElasticStrain.Value,'IncludeViscousRate',c.IncludeViscousRate.Value, ...
                 'FormatPNG',c.PNG.Value,'FormatPDF',c.PDF.Value,'FormatFIG',c.FIG.Value);
+            if strcmp(c.StrainMatchMode.Value,'checked')
+                choices=c.StrainChoices;
+                o.SelectedSourcePaths=choices.UserData(cell2mat(choices.Data(:,1)));
+                if requireSelection && isempty(o.SelectedSourcePaths)
+                    error('MergedLAOS:LissajousSelection','Check at least one file under Strains to export.');
+                end
+            end
         end
         function useSelectedAmplitude(app)
             if isempty(app.SelectedIndices),error('MergedLAOS:Selection','Select a loaded file first.');end
@@ -772,7 +852,7 @@ classdef SMS_LAOS_app_window < handle
             message=sprintf(['1. Choose Load data, Add folder or Load synthetic demo. On Data & units, confirm the time, strain and stress columns and units. Inspect the waveforms, strain rate and frequency.\n\n' ...
                 '2. Check the methods you need and adjust their settings on the matching tabs. Choose Analyze selected or Analyze all.\n\n' ...
                 '3. Watch the file list for progress. A Review row names each method with a quality warning. Click that row to read the reasons for that file.\n\n' ...
-                '4. Open Export to save results or a view. For a Lissajous figure, enter the target strain amplitude in percent and a matching tolerance, then choose Export Lissajous only.']);
+                '4. On Export, choose Check measured strains to tick individual files, or set a target amplitude and tolerance. Select the Lissajous plots you need. Run Stress decomposition on the matching files for elastic or viscous stress, then choose Export Lissajous only.']);
             uialert(app.Figure,message,'SMS-LAOS — User guide','Icon','info','Interpreter','none');
         end
         function chooseExport(app,onlyLissajous)
