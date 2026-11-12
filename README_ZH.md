@@ -2,13 +2,21 @@
 
 SMS-LAOS 是用于分析大振幅振荡剪切（LAOS）数据的 MATLAB 应用，支持傅里叶变换分析（FT-LAOS）、应力分解（SD）和物理过程序列分析（SPP）。[English guide](README.md)
 
-## 启动
+## 下载与安装
 
-已在 MATLAB R2026b 和 Signal Processing Toolbox 环境下测试。在 MATLAB 中打开项目文件夹，运行
+1. **安装 MATLAB**。如果已有 MATLAB，可直接进行下一步。用已关联许可证的 MathWorks 账号登录，下载适用于当前操作系统的安装程序，在产品列表中选择 **MATLAB**。SMS-LAOS 已在 R2026b 上测试。[MathWorks 下载页](https://www.mathworks.com/downloads/)
+2. **下载 SMS-LAOS** 并完整解压 ZIP。在 MATLAB 中，将包含 `launch_SMS_LAOS.m` 的解压文件夹设为当前文件夹。[下载 SMS-LAOS ZIP](https://github.com/SimonSun1st/SMS_LAOS/archive/refs/heads/Initial-upload-of-MATLAB-analysis-script.zip)
+3. **启动应用**。在 MATLAB 命令窗口运行
 
 ```matlab
 launch_SMS_LAOS
 ```
+
+点击 **Load synthetic demo** 可检查安装。预览应显示约 1 Hz 的频率和 50% 的应变幅值。点击 **Analyze selected** 即可运行三种方法。
+
+### 可选的 MATLAB 工具箱
+
+SMS-LAOS 的三种方法均可直接用 MATLAB 运行。如果其他分析需要 **Signal Processing Toolbox**，在 MATLAB R2026b 左侧打开 **Add-Ons**，搜索 **Signal Processing Toolbox**，选中 MathWorks 发布的产品并点击 **Install**。所用许可证须包含该工具箱。安装后在命令窗口运行 `ver` 即可查看已安装的产品。[MathWorks 工具箱安装说明](https://www.mathworks.com/help/matlab/matlab_env/get-add-ons.html)
 
 ## 分析数据
 

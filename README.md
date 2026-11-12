@@ -2,13 +2,21 @@
 
 SMS-LAOS is a MATLAB app for large-amplitude oscillatory shear (LAOS) data. It supports Fourier-transform LAOS (FT-LAOS), stress decomposition (SD) and sequence of physical processes (SPP) analysis. [中文说明](README_ZH.md)
 
-## Start
+## Download and install
 
-Tested with MATLAB R2026b and Signal Processing Toolbox. Open the project folder in MATLAB and run
+1. **Install MATLAB** if needed. Sign in with your licensed MathWorks account, download the installer for your operating system and select **MATLAB**. SMS-LAOS was tested with R2026b. [MathWorks Downloads](https://www.mathworks.com/downloads/)
+2. **Download SMS-LAOS** and extract the entire ZIP. In MATLAB, set the current folder to the extracted folder containing `launch_SMS_LAOS.m`. [Download SMS-LAOS ZIP](https://github.com/SimonSun1st/SMS_LAOS/archive/refs/heads/Initial-upload-of-MATLAB-analysis-script.zip)
+3. **Launch the app** from the MATLAB Command Window.
 
 ```matlab
 launch_SMS_LAOS
 ```
+
+To check the installation, click **Load synthetic demo**. The preview should show about 1 Hz and 50% strain amplitude. Click **Analyze selected** to run the three methods.
+
+### Optional MATLAB add-on
+
+All three SMS-LAOS methods run with MATLAB alone. To install **Signal Processing Toolbox** for other work in R2026b, open **Add-Ons** in the MATLAB left sidebar, search for **Signal Processing Toolbox**, select the MathWorks product and click **Install**. Use a license that includes it. Run `ver` in the Command Window to see the installed products. [MathWorks add-on guide](https://www.mathworks.com/help/matlab/matlab_env/get-add-ons.html)
 
 ## Analyze data
 
