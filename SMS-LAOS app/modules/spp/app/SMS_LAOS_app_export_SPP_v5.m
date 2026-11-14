@@ -1,8 +1,11 @@
-function manifest = SMS_LAOS_app_export_SPP_v5(entries, outputFolder)
+function manifest = SMS_LAOS_app_export_SPP_v5(entries, outputFolder, progress)
 %SMS_LAOS_APP_EXPORT_SPP_V5 Export current averaged or evolving responses, without reruns.
 % Writes complete MAT results, cycle/harmonic CSVs, available average/continuous
 % phase CSVs, sensitivity CSVs, settings and a manifest. A warning result with
 % no stable average remains exportable as diagnostics. Never overwrites files.
+% Optional progress(fraction,message) may throw to cancel before publishing.
+if nargin<3,progress=[];end
+if ~isempty(progress)&&~isa(progress,'function_handle'),error('SPPApp:ExportProgress','Progress must be a function handle.');end
 required={'Path','Name','Status','Result','Error','Options'};
 if ~isstruct(entries)||isempty(entries)||~all(isfield(entries,required))
     error('SPPApp:ExportEmpty','Supply nonempty analysis entries.');
@@ -13,8 +16,9 @@ template=struct('inputIndex',0,'sourcePath','','sourceName','','status','', ...
     'included',false,'exclusionReason','','recordedError','','outputBase','', ...
     'matFile','','cycleCSV','','harmonicsCSV','','phaseCSV','','evolutionPhaseCSV','', ...
     'sensitivityCSV','','sourceSignature',struct(),'staleReason','');
-records=repmat(template,n,1); included=false(n,1);
+records=repmat(template,n,1); included=false(n,1);sensitivity=cell(n,1);
 for j=1:n
+    notify(.05*(j-1)/n,sprintf('Checking SPP file %d of %d · %s',j,n,entries(j).Name));
     e=entries(j); r=template; r.inputIndex=j; r.sourcePath=absolute_path(char(e.Path));
     r.sourceName=char(e.Name); r.status=char(e.Status); r.recordedError=char(string(e.Error));
     if isfield(e,'SourceSignature'), r.sourceSignature=e.SourceSignature; end
@@ -32,7 +36,8 @@ for j=1:n
             r.harmonicsCSV=[r.outputBase '_harmonics.csv'];
             if ~isempty(e.Result.average), r.phaseCSV=[r.outputBase '_average_phase.csv']; end
             if ~isempty(e.Result.evolution.Gt_storage), r.evolutionPhaseCSV=[r.outputBase '_evolution_phase.csv']; end
-            if ~isempty(sensitivity_table(e.Result)), r.sensitivityCSV=[r.outputBase '_sensitivity.csv']; end
+            sensitivity{j}=sensitivity_table(e.Result);
+            if ~isempty(sensitivity{j}), r.sensitivityCSV=[r.outputBase '_sensitivity.csv']; end
             r.included=true; included(j)=true;
         end
     end
@@ -43,9 +48,13 @@ if ~isfolder(outputFolder), [ok,msg]=mkdir(outputFolder); if ~ok,error('SPPApp:E
 assert_empty(outputFolder); stage=tempname(outputFolder); mkdir(stage);
 cleanup=onCleanup(@() cleanup_stage(stage)); %#ok<NASGU>
 files={}; rows={}; snapshots={}; allcycles={}; allharmonics={};
-for j=find(included)'
-    R=entries(j).Result; rec=records(j);
+rowsToWrite=find(included);total=numel(rowsToWrite);
+for k=1:total
+    j=rowsToWrite(k);R=entries(j).Result;rec=records(j);
+    fileMessage=sprintf('%d of %d · %s',k,total,rec.sourceName);
+    notify(.05+.84*(k-1)/total,['SPP result · ' fileMessage]);
     save(fullfile(stage,rec.matFile),'R','-v7.3');
+    notify(.05+.84*(k-.7)/total,['SPP tables · ' fileMessage]);
     write_csv(R.evolution.cycle_table,fullfile(stage,rec.cycleCSV));
     write_csv(R.evolution.harmonics,fullfile(stage,rec.harmonicsCSV));
     files=[files;{rec.matFile;rec.cycleCSV;rec.harmonicsCSV}]; %#ok<AGROW>
@@ -56,10 +65,12 @@ for j=find(included)'
         write_csv(average_phase(R.average),fullfile(stage,rec.phaseCSV)); files{end+1,1}=rec.phaseCSV;
     end
     if ~isempty(rec.evolutionPhaseCSV)
+        notify(.05+.84*(k-.4)/total,['SPP evolution · ' fileMessage]);
         write_csv(evolution_phase(R),fullfile(stage,rec.evolutionPhaseCSV)); files{end+1,1}=rec.evolutionPhaseCSV;
     end
     if ~isempty(rec.sensitivityCSV)
-        write_csv(sensitivity_table(R),fullfile(stage,rec.sensitivityCSV)); files{end+1,1}=rec.sensitivityCSV;
+        notify(.05+.84*(k-.2)/total,['SPP sensitivity · ' fileMessage]);
+        write_csv(sensitivity{j},fullfile(stage,rec.sensitivityCSV)); files{end+1,1}=rec.sensitivityCSV;
     end
     rows{end+1}=struct('InputIndex',j,'SourcePath',string(rec.sourcePath),'SourceName',string(rec.sourceName), ...
         'AnalysisMode',string(R.analysis_mode),'Status',string(rec.status), ...
@@ -74,6 +85,7 @@ for j=find(included)'
     snapshots{end+1}=struct('inputIndex',j,'sourcePath',rec.sourcePath, ...
         'settings',R.settings,'selection',json_safe(R.selection),'sourceSignature',rec.sourceSignature); %#ok<AGROW>
 end
+notify(.90,'Writing SPP batch summaries');
 write_csv(struct2table(vertcat(rows{:})),fullfile(stage,'summary.csv'));
 write_csv(vertcat(allcycles{:}),fullfile(stage,'cycles_all_files.csv'));
 write_csv(vertcat(allharmonics{:}),fullfile(stage,'harmonics_all_files.csv'));
@@ -95,12 +107,16 @@ manifest=struct('schemaVersion',5,'application','SPP LAOS v5', ...
     'File signatures are recorded size/time metadata only. The GUI checks them before export; these are not content hashes.'}});
 write_json(fullfile(stage,'manifest.json'),manifest);
 files=[files;{'summary.csv';'cycles_all_files.csv';'harmonics_all_files.csv';'settings_snapshot.json';'manifest.json'}];
+notify(1,'Publishing SPP files');
 for j=1:numel(files)
     target=fullfile(outputFolder,files{j});
     if exist(target,'file')~=0,error('SPPApp:ExportExists','Destination appeared during export: %s',target);end
     [ok,msg]=movefile(fullfile(stage,files{j}),target);
     if ~ok,error('SPPApp:ExportWrite','Cannot publish %s: %s',files{j},msg);end
 end
+    function notify(fraction,message)
+        if ~isempty(progress),progress(fraction,message);end
+    end
 end
 
 function [ok,reason]=valid_result(R)

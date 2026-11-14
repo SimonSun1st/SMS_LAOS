@@ -30,6 +30,7 @@ record('stale_settings_source_and_unrun_exclusions',@exclusions);
 record('preview_only_and_nested_lissajous',@preview_only);
 record('empty_overwrite_and_order_guards',@guards);
 record('full_native_stress_export',@full_export);
+record('progress_and_transactional_cancellation',@progress_checks);
 record('manifest_final_paths',@manifests);
 report=struct('Passed',all([rows.Passed]),'PassedCount',sum([rows.Passed]),'TestCount',numel(rows), ...
     'MATLABVersion',version,'OutputFolder',outputFolder,'Tests',rows);
@@ -111,6 +112,25 @@ fprintf('Merged export: %d/%d passed.\n',report.PassedCount,report.TestCount);
         assert(isfile(fullfile(out,'Stress_decomposition',M.modules.Stress.summaryPNG)),'Full native summary PNG is missing.');
         assert(isfile(fullfile(out,'Stress_decomposition',M.modules.Stress.entries(1).plotFIG)),'Full native file FIG is missing.');
         detail='Full export retains native XLSX, PNG, FIG, selected-cycle and decomposition outputs.';
+    end
+    function detail=progress_checks()
+        fractions=[];messages={};stopAt='';a=opts;a.IncludeWaveforms=true;
+        out=fullfile(outputFolder,'progress');
+        SMS_LAOS_app_export_results(e,f,f,s,out,a,@observe);
+        assert(issorted(fractions)&&fractions(1)==0&&fractions(end)==1,'Progress must cover the complete export in order.');
+        assert(all(cellfun(@(tag)any(contains(messages,tag)),{'waveform','FT-LAOS','Stress decomposition','SPP','Publishing'})), ...
+            'Missing a module or publishing progress update.');
+        for tag={'Writing curve CSV','SPP result','Publishing verified files'}
+            stopAt=tag{1};out=tempname(outputFolder);
+            prior=sort(string({dir(outputFolder).name}));
+            must_error(@()SMS_LAOS_app_export_results(e,f,f,s,out,a,@observe),'Test:UserCancelled');
+            assert(isequal(prior,sort(string({dir(outputFolder).name})))&&~isfolder(out),'Cancellation left a staging or output directory.');
+        end
+        detail='Progress covers the checked methods, waveform and publication. SD, SPP and pre-publication cancellation leave no partial output.';
+        function observe(fraction,message)
+            fractions(end+1)=fraction;messages{end+1}=message;
+            if ~isempty(stopAt)&&contains(message,stopAt),error('Test:UserCancelled','User cancelled.');end
+        end
     end
     function detail=manifests()
         jsons=dir(fullfile(outputFolder,'**','manifest.json'));

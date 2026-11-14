@@ -18,7 +18,7 @@ SMS_LAOS_app
 
 ## 输入文件、单位与波形预览
 
-用 **Load data** 导入一个或多个文件，或用 **Add folder** 加载一个文件夹中的数据。支持 DAT、CSV、TXT、TSV、XLS 和 XLSX。每个文件需包含时间、应变和应力三个数值通道，采样时间应严格递增。在 **Data & units** 设置列号、单位、表头行数、分隔符和 Excel 工作表。默认读取第一个工作表并自动识别文本分隔符。
+用 **Load data** 导入一个或多个文件，或用 **Add folder** 加载一个文件夹中的数据。文件列表上方的 **Folder** 显示当前选中文件的来源文件夹。混合导入时，名称旁会显示其他文件夹的数量，悬停可查看完整路径。支持 DAT、CSV、TXT、TSV、XLS 和 XLSX。每个文件需包含时间、应变和应力三个数值通道，采样时间应严格递增。在 **Data & units** 设置列号、单位、表头行数、分隔符和 Excel 工作表。默认读取第一个工作表并自动识别文本分隔符。
 
 | 量 | 默认列及单位 | 支持的输入单位 |
 | --- | --- | --- |
@@ -81,7 +81,9 @@ SPP 直接使用实测应力。局部平面模型为 σ ≈ G′ₜ γ + G″ₜ
 
 ## 导出结果与指定应变幅值的李萨如图
 
-在 **Export** 页点击 **Export results**，按当前勾选的方法导出整批文件的有效结果。带质量提示的当前结果也会导出，未完成、失败和过期状态可在 `analysis_status.csv` 中核对。
+在 **Export → Export content** 选择 **Analysis results**（分析结果）、**Lissajous plots**（李萨如图）或 **Results and plots**（两者一起），页面随选择显示对应设置。点击 **Export…** 后选择保存位置。写文件时可以查看当前步骤和百分比，也可以点 **Cancel export**。取消会在当前操作结束后生效，并清理未完成的结果包。选择 **Workspace snapshot** 可保存指定页面的 PNG 截图。
+
+**Analysis results** 导出所有文件中已勾选方法的有效结果，包括带有质量提示的结果。默认的 **Fast** 包适合导出数据。需要 SD 原生图和 Excel 工作簿时选择 **Full**。
 
 | 输出位置 | 主要内容 |
 | --- | --- |
@@ -93,7 +95,7 @@ SPP 直接使用实测应力。局部平面模型为 σ ≈ G′ₜ γ + G″ₜ
 
 ### 勾选应变幅值并导出李萨如图
 
-1. 在 **Export → Strains to export** 选择 **Check measured strains**。按表中显示的实测应变幅值和文件名勾选所需行，例如只选接近 5%、10% 和 20% 的三个文件。即使两个文件的幅值相同，也可以只选其中一个。如果要导出一个范围内的全部文件，选择 **Target amplitude and tolerance**。例如，目标 10%、容差 0.1 个百分点会匹配 9.9% 至 10.1%。
+1. 在 **Export content** 选择 **Lissajous plots** 或 **Results and plots**，打开 **Strains to export** 下方的文件勾选表。按表中显示的实测应变幅值和文件名勾选所需行，例如只选接近 5%、10% 和 20% 的三个文件。即使两个文件的幅值相同，也可以只选其中一个。如果要导出一个范围内的全部文件，选择 **Target amplitude and tolerance**。例如，目标 10%、容差 0.1 个百分点会匹配 9.9% 至 10.1%。
 2. 在 **Lissajous plots** 勾选需要的图。若要比较总应力及其分量，先对所选文件运行 **Stress decomposition**，然后勾选以下三项：
 
    | 图形 | 横轴 | 纵轴 |
@@ -103,7 +105,8 @@ SPP 直接使用实测应力。局部平面模型为 σ ≈ G′ₜ γ + G″ₜ
    | **Viscous stress vs strain rate** | 实际应变率（s⁻¹） | 重建的黏性应力（Pa） |
 
    也可选择 **Total stress vs strain rate**。只要勾选弹性或黏性分量，同一文件的各张图就使用相同的 SD 采样点，应变和实测总应力按该分析窗口去均值。只勾选总应力图时，使用保留原始偏置的波形预览，可在运行分析方法前导出。
-3. 选择 **Separate figures per file** 可为每个勾选文件分别出图，选择 **Overlay matched files** 可将多个文件按图形类型叠加。选择完整窗口或最后 N 圈，以及 PNG、矢量 PDF 或可编辑 MATLAB FIG，再点击 **Export Lissajous only**。要随整批结果一起导出，可勾选 **Include Lissajous figures in result export** 后点击 **Export results**。
+3. 在 **Axis scale** 选择 **Physical units**（物理单位）、**Normalised**（归一化）或 **Physical and normalised**（两种都导出）。每个文件都按本次绘图窗口计算参考值：应变和应变率分别除以各自的最大绝对值，总应力、弹性应力和黏性应力统一除以**实测总应力的最大绝对值**，保留各应力分量的相对大小。归一化 CSV 同时保留有量纲的原值，参考值记录在 `manifest.json`。若参考值为零，可改选绘图窗口或物理单位。
+4. 选择 **Separate figures per file** 可为每个勾选文件分别出图，选择 **Overlay matched files** 可按图形类型叠加。选择完整窗口或最后 N 圈，再点 **Export…**。默认导出 PNG，也可勾选矢量 PDF 和可编辑 MATLAB FIG。
 
 配套 CSV 保存实际绘图点。分量图的 `_decomposition_curves.csv` 同时记录 SD 窗口内的相对时间、原采集时间、应变、应变率，以及总应力、弹性应力和黏性应力。
 

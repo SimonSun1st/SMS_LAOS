@@ -18,7 +18,7 @@ All three methods run with MATLAB alone. To install the optional **Signal Proces
 
 ## Load and check the measurements
 
-Choose **Load data** to select files or **Add folder** to import a batch. The app accepts DAT, CSV, TXT, TSV, XLS and XLSX. Each file needs numeric time, strain and stress channels. For the waveform preview, provide at least ten finite rows with strictly increasing timestamps.
+Choose **Load data** to select files or **Add folder** to import a batch. The **Folder** label above the file list shows the selected file’s source folder. When files come from several folders, the label includes a count of the other folders. Hover over it to see their paths. The app accepts DAT, CSV, TXT, TSV, XLS and XLSX. Each file needs numeric time, strain and stress channels. For the waveform preview, provide at least ten finite rows with strictly increasing timestamps.
 
 | Channel | Default column and unit | Other supported units |
 | --- | --- | --- |
@@ -84,19 +84,21 @@ If SPP reports **no stable final cycles**, open **Stationarity** for the candida
 
 ## Export results
 
-Open **Export**, select the outputs and click **Export results**. The app includes current results for the checked methods across all loaded files, including completed results with warnings. Use the status table and settings snapshot to trace an export to its input and analysis settings.
+Under **Export → Export content**, choose **Analysis results**, **Lissajous plots** or **Results and plots**. The page shows the settings for that choice. Click **Export…** and choose a parent folder. During writing, the page displays the current operation and percentage. **Cancel export** stops after the active operation and discards the unfinished package. **Workspace snapshot** saves a PNG of a chosen app tab.
+
+**Analysis results** includes current results for the checked methods across all files, including completed results with warnings. The default **Fast** package skips native SD figures and Excel workbooks. Select **Full** when you need them.
 
 | Output location | Contents |
 | --- | --- |
 | `FT_LAOS/` | Batch `summary.csv`, per-file harmonic and spectrum CSVs and MATLAB results. |
-| `Stress_decomposition/` | Summary table and per-file MAT results. **Full** adds Excel, selected-cycle CSVs and native PNG/FIG plots. **Fast** saves the lighter package. **Include decomposed curve CSV** independently exports measured, elastic, viscous, reconstructed and residual stresses for replotting. |
+| `Stress_decomposition/` | Summary table and per-file MAT results. **Full** adds Excel, selected-cycle CSVs and native PNG/FIG plots. **Fast** saves the lighter package. **Decomposed curve CSV** independently exports measured, elastic, viscous, reconstructed and residual stresses for replotting. |
 | `SPP/` | Per-file MAT results, cycle and harmonic tables. Average or evolution phase traces and sensitivity tables are included when available. |
 | `Waveforms/`, `Lissajous/` | Optional exports include converted waveforms, Lissajous figures for the selected strains, and the samples used in each plot. |
 | Export root | `analysis_status.csv`, `settings_snapshot.json` and `manifest.json`. |
 
 ### Lissajous figures at selected strains
 
-1. In **Export → Strains to export**, choose **Check measured strains**. Tick the rows you want, for example the files near 5%, 10% and 20%. Each row shows its measured amplitude and filename. You can select individual replicates even when their amplitudes coincide. Alternatively, **Target amplitude and tolerance** selects all matches in a range (10% ± 0.1 percentage points includes 9.9% to 10.1%).
+1. Set **Export content** to **Lissajous plots** or **Results and plots**. The file checklist opens under **Strains to export**. Tick the rows you want, for example the files near 5%, 10% and 20%. Each row shows its measured amplitude and filename. You can select individual replicates even when their amplitudes coincide. Alternatively, **Target amplitude and tolerance** selects all matches in a range (10% ± 0.1 percentage points includes 9.9% to 10.1%).
 2. Under **Lissajous plots**, check the figures you need. To compare measured and decomposed stress, run **Stress decomposition** on the chosen files and select these three plots:
 
    | Plot | Horizontal axis | Vertical axis |
@@ -106,7 +108,8 @@ Open **Export**, select the outputs and click **Export results**. The app includ
    | **Viscous stress vs strain rate** | Physical strain rate (s⁻¹) | Reconstructed viscous stress (Pa) |
 
    **Total stress vs strain rate** is also available. If either component is selected, all curves for each file use the same SD samples, mean-centered strain and measured total stress. With only total-stress plots selected, the app uses the measured waveform preview and retains its offsets. These plots can be exported before analysis.
-3. Choose **Separate figures per file** for one set per checked row, or **Overlay matched files** for one overlay per plot type. Choose the entire available window or its last N cycles, and select PNG, vector PDF or editable MATLAB FIG. Click **Export Lissajous only**. To include these figures in a full export, check **Include Lissajous figures in result export** and click **Export results**.
+3. Under **Axis scale**, choose **Physical units**, **Normalised** or **Physical and normalised**. The app calculates each reference separately for each file over the time window being plotted. Strain and strain rate each use their own peak absolute value. Total, elastic and viscous stress all use the peak absolute **measured total stress**, preserving the relative sizes of the components. For normalised exports, the CSV includes the dimensionless coordinates alongside the dimensional data, and `manifest.json` records the reference values. A zero reference requires another window or physical units.
+4. Choose **Separate figures per file** for one set per selected file or **Overlay matched files** for one overlay per plot type. Select the entire available window or its last N cycles. PNG is selected by default. Vector PDF and editable MATLAB FIG are optional. Click **Export…**.
 
 The figure CSV contains the samples used for plotting. For component plots, `_decomposition_curves.csv` records SD elapsed time, acquisition time, strain, strain rate, and the total, elastic and viscous stresses.
 

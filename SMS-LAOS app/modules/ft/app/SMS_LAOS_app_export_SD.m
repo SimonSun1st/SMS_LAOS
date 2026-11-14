@@ -1,4 +1,4 @@
-function manifest = SMS_LAOS_app_export_SD(entries, outputFolder, exportOptions, progressCallback)
+function manifest = SMS_LAOS_app_export_SD(entries, outputFolder, exportOptions, progressCallback, progress)
 %SMS_LAOS_APP_EXPORT_SD Export current GUI results without recalculating them.
 % Full mode preserves original CSV/XLSX, selected-cycle CSV, curve CSV,
 % twelve-panel PNG/FIG and six-panel summary PNG/FIG functionality. Fast mode
@@ -7,9 +7,12 @@ function manifest = SMS_LAOS_app_export_SD(entries, outputFolder, exportOptions,
 % Destination must be absent or empty. Source data are never written.
 % Optional progressCallback receives Stage, FileIndex, FileCount, Filename.
 % A failing observer is disabled; it cannot change the calculation or save.
+% Optional second observer progress(fraction,message) may interrupt the staged
+% export by throwing. It is never called after publication begins.
+if nargin<5, progress=[]; end
 if nargin<3, exportOptions=struct(); end
 if nargin<4, progressCallback=[]; end
-if ~isempty(progressCallback) && ~isa(progressCallback,'function_handle')
+if (~isempty(progressCallback) && ~isa(progressCallback,'function_handle')) || (~isempty(progress) && ~isa(progress,'function_handle'))
     error('SMSApp:ProgressCallback','The progress callback must be a function handle.');
 end
 progressEnabled=~isempty(progressCallback);
@@ -29,7 +32,7 @@ end
 outputFolder=absolute_path(scalar_text(outputFolder));
 assert_empty_target(outputFolder);
 n=numel(entries);
-notify_progress('Checking files',0,n,'');
+notify_progress('Checking files',0,n,'',0);
 record=struct('inputIndex',0,'sourcePath','','sourceName','','status','', ...
     'included',false,'exclusionReason','','recordedError','','staleReason','', ...
     'sourceSignature',struct(),'outputBase','','matFile','','selectedCSV','', ...
@@ -38,6 +41,7 @@ records=repmat(record,n,1);
 included=false(n,1);
 for j=1:n
     e=entries(j);
+    if ~isempty(progress),progress(.05*(j-1)/n,sprintf('Checking stress file %d of %d · %s',j,n,e.Name));end
     records(j).inputIndex=j; records(j).sourcePath=char(e.Path);
     records(j).sourceName=char(e.Name); records(j).status=char(e.Status);
     records(j).recordedError=char(string(e.Error));
@@ -97,32 +101,32 @@ files=cell(0,1); count=0;
 plotState=[]; figureCleanup=[];
 for j=find(included)'
     count=count+1; e=entries(j); R=e.Result; rec=records(j);
-    notify_progress('Saving MAT',count,total,e.Name);
+    notify_progress('Saving MAT',count,total,e.Name,.05+.80*(count-1+0)/total);
     save(fullfile(stage,rec.matFile),'R','-v7.3');
     files{end+1,1}=rec.matFile; %#ok<AGROW>
     if ~options.fast_mode || options.save_curve_csv
         [selected,curve]=SMS_LAOS_app_FT_SD_curve_tables(R);
         if ~options.fast_mode
-            notify_progress('Writing selected CSV',count,total,e.Name);
+            notify_progress('Writing selected CSV',count,total,e.Name,.05+.80*(count-1+.16)/total);
             writetable(selected,fullfile(stage,rec.selectedCSV));
             files{end+1,1}=rec.selectedCSV; %#ok<AGROW>
         end
         if options.save_curve_csv
-            notify_progress('Writing curve CSV',count,total,e.Name);
+            notify_progress('Writing curve CSV',count,total,e.Name,.05+.80*(count-1+.27)/total);
             writetable(curve,fullfile(stage,rec.curveCSV));
             files{end+1,1}=rec.curveCSV; %#ok<AGROW>
         end
     end
     if ~options.fast_mode
         [~,displayName]=fileparts(e.Name);
-        notify_progress('Rendering figures',count,total,e.Name);
+        notify_progress('Rendering figures',count,total,e.Name,.05+.80*(count-1+.48)/total);
         plotState=SMS_LAOS_app_export_SD_plot(plotState,R,displayName,R.settings.cycle_selection_mode);
         if isempty(figureCleanup)
             figureCleanup=onCleanup(@() close_figure(plotState.Figure));
         end
-        notify_progress('Saving PNG',count,total,e.Name);
+        notify_progress('Saving PNG',count,total,e.Name,.05+.80*(count-1+.64)/total);
         saveas(plotState.Figure,fullfile(stage,rec.plotPNG));
-        notify_progress('Saving FIG',count,total,e.Name);
+        notify_progress('Saving FIG',count,total,e.Name,.05+.80*(count-1+.86)/total);
         save_figure(plotState.Figure,fullfile(stage,rec.plotFIG),useV73Figures);
         files(end+1:end+2,1)={rec.plotPNG;rec.plotFIG};
     end
@@ -136,7 +140,7 @@ for j=find(included)'
         'Messages',string(strjoin(R.quality.messages,' | ')));
 end
 clear figureCleanup plotState;
-notify_progress('Writing summaries',total,total,'');
+notify_progress('Writing summaries',total,total,'',.85);
 results=SMS_LAOS_app_FT_SD_result_table(entries(included));
 if options.fast_mode, resultCSV='SMS_LAOS_results_fast.csv';
 else, resultCSV='SMS_LAOS_results_full.csv'; end
@@ -144,12 +148,16 @@ writecell(results,fullfile(stage,resultCSV)); files{end+1,1}=resultCSV;
 resultExcel=''; summaryPNG=''; summaryFIG='';
 if ~options.fast_mode
     resultExcel='SMS_LAOS_results_full.xlsx';
+    notify_progress('Writing Excel workbook',total,total,'',.87);
     writecell(results,fullfile(stage,resultExcel)); files{end+1,1}=resultExcel;
+    notify_progress('Rendering summary figures',total,total,'',.90);
     fig=SMS_LAOS_app_FT_SD_summary_plot_v2(entries(included));
     figCleanup=onCleanup(@() close_figure(fig));
     summaryPNG=fullfile('SMS_LAOS_Plots','SMS_LAOS_summary.png');
     summaryFIG=fullfile('SMS_LAOS_Plots','SMS_LAOS_summary.fig');
+    notify_progress('Saving summary PNG',total,total,'',.93);
     saveas(fig,fullfile(stage,summaryPNG));
+    notify_progress('Saving summary FIG',total,total,'',.96);
     save_figure(fig,fullfile(stage,summaryFIG),useV73Figures);
     clear figCleanup;
     files(end+1:end+2,1)={summaryPNG;summaryFIG};
@@ -175,7 +183,7 @@ manifest=struct('schemaVersion',1,'application','SMS LAOS MATLAB GUI', ...
     'Source path, file size and modification time were checked before export; metadata checks are not content hashes.', ...
     'Numerical agreement with the original script does not establish physical validity or steady state.'}});
 write_json(fullfile(stage,'manifest.json'),manifest);
-notify_progress('Publishing',total,total,'');
+notify_progress('Publishing',total,total,'',1);
 % Progress callbacks yield to the UI. Recheck provenance after the final
 % yield, before exposing any result file, so mid-export changes cannot pass.
 for j=find(included)'
@@ -190,9 +198,14 @@ for j=1:numel(listing)
     publish(fullfile(stage,listing(j).name),fullfile(outputFolder,listing(j).name));
 end
 publish(fullfile(stage,'manifest.json'),fullfile(outputFolder,'manifest.json'));
-notify_progress('Complete',total,total,'');
+notify_progress('Complete',total,total,'',[]);
 
-    function notify_progress(stageName,index,fileCount,filename)
+    function notify_progress(stageName,index,fileCount,filename,fraction)
+        if ~isempty(progress) && ~isempty(fraction)
+            message=['Stress decomposition · ' stageName];
+            if ~isempty(filename),message=sprintf('%s · %d of %d · %s',message,index,fileCount,filename);end
+            progress(fraction,message);
+        end
         if ~progressEnabled, return; end
         event=struct('Stage',char(stageName),'FileIndex',index, ...
             'FileCount',fileCount,'Filename',char(filename));

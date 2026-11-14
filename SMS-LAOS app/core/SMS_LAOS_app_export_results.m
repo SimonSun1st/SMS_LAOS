@@ -1,6 +1,15 @@
 function manifest=SMS_LAOS_app_export_results(entries,ftEntries,varargin)
 %SMS_LAOS_APP_EXPORT_RESULTS Export requested, current analyses without rerunning.
 % Native SMS/SPP exports retain their original numerical result structures.
+% Optional final callback receives (fraction,message). Throwing cancels while the
+% output is staged. No callback runs after publication begins.
+progress=[];
+if numel(varargin)==5 || (numel(varargin)==4 && isa(varargin{end},'function_handle'))
+    progress=varargin{end};varargin(end)=[];
+    if ~isempty(progress) && ~isa(progress,'function_handle')
+        error('MergedLAOS:ExportProgress','Progress must be a function handle.');
+    end
+end
 hasSeparateSD=numel(varargin)==4;
 if hasSeparateSD
     sdEntries=varargin{1};sppEntries=varargin{2};folder=varargin{3};options=varargin{4};
@@ -20,9 +29,12 @@ n=numel(entries);m=options.Methods;records=repmat(struct( ...
     'measuredStrainAmplitudePercent',NaN,'previewFrequencyHz',NaN, ...
     'FTStatus','','StressStatus','','SPPStatus','','FTError','','StressError','','SPPError','', ...
     'FTIncluded',false,'StressIncluded',false,'SPPIncluded',false,'waveformCSV',''),n,1);
+waveFolder=fullfile(stage,'Waveforms');
+notify(0,'Checking files');
 ftInclude=false(1,n);sdInclude=false(1,n);spInclude=false(1,n);previews={};sources={};
 for k=1:n
     e=entries(k);f=ftEntries(k);d=sdEntries(k);s=sppEntries(k);r=records(k);
+    notify(.13*(k-1)/n,sprintf('Checking file %d of %d · %s',k,n,e.Name));
     if ~strcmp(e.Path,f.Path)||~strcmp(e.Path,d.Path)||~strcmp(e.Path,s.Path),error('MergedLAOS:ExportEntries','Input order does not match method entries.');end
     r.inputIndex=k;r.sourcePath=e.Path;r.sourceName=e.Name;r.previewError=e.PreviewError;
     r.FTStatus=f.Status;r.StressStatus=d.Status;r.SPPStatus=s.Status;r.FTError=f.Error;r.StressError=d.Error;r.SPPError=s.Error;
@@ -42,7 +54,8 @@ for k=1:n
         if SMS_LAOS_app_source_current(P.source)
             r.previewStatus='current';previews{end+1}=P; %#ok<AGROW>
             if options.IncludeWaveforms
-                if ~isfolder(fullfile(stage,'Waveforms')),mkdir(fullfile(stage,'Waveforms'));end
+                if ~isfolder(waveFolder),mkdir(waveFolder);end
+                notify(.13*(k-.5)/n,sprintf('Writing waveform %d of %d · %s',k,n,e.Name));
                 base=safe_base(k,e.Name);r.waveformCSV=fullfile('Waveforms',[base '_waveforms.csv']);
                 T=table(P.time,P.strain,100*P.strain,P.strainRate,P.stress, ...
                     'VariableNames',{'Time_s','Strain','Strain_percent','StrainRate_per_s','Stress_Pa'});
@@ -58,20 +71,27 @@ end
 if ~any(ftInclude|sdInclude|spInclude)&&~(options.IncludeWaveforms&&~isempty(sources))&&~options.IncludeLissajous
     error('MergedLAOS:ExportEmpty','No current results for the checked methods. Analyze first, or enable a waveform / Lissajous export.');
 end
+% Give each active method a portion of the remaining progress bar. A full SD
+% export produces several native figures and a workbook, so gets more room.
+weights=[nnz(ftInclude) nnz(sdInclude) nnz(spInclude) n*double(options.IncludeLissajous)];
+if any(sdInclude)
+    if isfield(options,'SDOptions'),settings=options.SDOptions;else,settings=options.FTOptions;end
+    if ~settings.fast_mode,weights(2)=4*weights(2);end
+end
+edges=.13+.80*[0 cumsum(weights)]/max(1,sum(weights));
 modules=struct();
 if any(ftInclude)
     out=fullfile(stage,'FT_LAOS');mkdir(out);
-    modules.FT=export_ft(ftEntries,ftInclude,out);
+    modules.FT=export_ft(ftEntries,ftInclude,out,@(f,t)phase(1,f,t));
 end
 if any(sdInclude)
     exportEntries=exclude_entries(sdEntries,sdInclude);
-    if isfield(options,'SDOptions'),settings=options.SDOptions;else,settings=options.FTOptions;end
     eo=struct('fast_mode',settings.fast_mode,'save_curve_csv',settings.save_curve_csv);
-    modules.Stress=SMS_LAOS_app_export_SD(exportEntries,fullfile(stage,'Stress_decomposition'),eo);
+    modules.Stress=SMS_LAOS_app_export_SD(exportEntries,fullfile(stage,'Stress_decomposition'),eo,[],@(f,t)phase(2,f,t));
 end
 if any(spInclude)
     exportEntries=exclude_entries(sppEntries,spInclude);
-    modules.SPP=SMS_LAOS_app_export_SPP_v5(exportEntries,fullfile(stage,'SPP'));
+    modules.SPP=SMS_LAOS_app_export_SPP_v5(exportEntries,fullfile(stage,'SPP'),@(f,t)phase(3,f,t));
 end
 if options.IncludeLissajous
     o=options.Lissajous;
@@ -92,13 +112,19 @@ if options.IncludeLissajous
             plotSD{j}=sdEntries(k).Result;
         end
     end
-    modules.Lissajous=SMS_LAOS_app_export_lissajous(plotPreviews,fullfile(stage,'Lissajous'),o,plotSD);
+    modules.Lissajous=SMS_LAOS_app_export_lissajous(plotPreviews,fullfile(stage,'Lissajous'),o,plotSD,@(f,t)phase(4,f,t));
     for k=reshape([modules.Lissajous.entries.inputIndex],1,[])
         sources{end+1}=entries(k).Preview.source; %#ok<AGROW>
     end
 end
-for k=1:numel(sources)
-    if ~SMS_LAOS_app_source_current(sources{k}),error('MergedLAOS:SourceChanged','A source changed during export: %s. Export again after reanalysis.',sources{k}.path);end
+notify(.94,'Writing settings and manifests');
+% Each native exporter has a single manifest. Its list of files is relative
+% to outputFolder, so only that field changes when the outer staging area moves.
+for name=fieldnames(modules)'
+    key=name{1};item=modules.(key);
+    staged=item.outputFolder;[~,leaf]=fileparts(staged);
+    item.outputFolder=fullfile(folder,leaf);modules.(key)=item;
+    write_json(fullfile(staged,'manifest.json'),item);
 end
 T=struct2table(records,'AsArray',true);writetable(T,fullfile(stage,'analysis_status.csv'));
 previewSnapshots=cellfun(@preview_snapshot,previews,'UniformOutput',false);
@@ -117,12 +143,11 @@ manifest=struct('schemaVersion',2,'application','SMS-LAOS', ...
     'Preview strain rate uses gradient(strain,time). The analysis engines retain their own derivatives, frequency estimates and selected cycles.', ...
     'A stable-tail failure exports SPP diagnostics without fabricating an average curve.', ...
     'File freshness is checked using size and modification time, not content hashes.'}});
-manifest=remap_folders(manifest,stage,folder);write_json(fullfile(stage,'manifest.json'),manifest);
-% Sub-exporters wrote staging paths. Publish manifests with the real location.
-jsons=dir(fullfile(stage,'**','manifest.json'));
-for k=1:numel(jsons)
-    path=fullfile(jsons(k).folder,jsons(k).name);
-    value=jsondecode(fileread(path));write_json(path,remap_folders(value,stage,folder));
+write_json(fullfile(stage,'manifest.json'),manifest);
+notify(1,'Publishing verified files');
+% Check every recorded signature after the final cancellation/yield point.
+for k=1:numel(sources)
+    if ~SMS_LAOS_app_source_current(sources{k}),error('MergedLAOS:SourceChanged','A source changed during export: %s. Export again after reanalysis.',sources{k}.path);end
 end
 assert_empty(folder);if ~isfolder(folder),mkdir(folder);end
 files=dir(stage);files=files(~ismember({files.name},{'.','..'}));
@@ -134,18 +159,27 @@ for k=1:numel(files)
     [ok,msg]=movefile(fullfile(stage,files(k).name),target);
     if ~ok,error('MergedLAOS:ExportWrite','Cannot publish output: %s',msg);end
 end
+    function notify(fraction,message)
+        if ~isempty(progress),progress(fraction,message);end
+    end
+    function phase(index,fraction,message)
+        notify(edges(index)+fraction*(edges(index+1)-edges(index)),message);
+    end
 end
 
-function m=export_ft(entries,included,out)
-summary={};files={};
-for k=find(included)
+function m=export_ft(entries,included,out,progress)
+summary={};files={};rows=find(included);total=numel(rows);
+for j=1:total
+    k=rows(j);
+    progress((j-1)/total,sprintf('FT-LAOS %d of %d · %s',j,total,entries(k).Name));
     e=entries(k);R=e.Result;base=safe_base(k,e.Name);
     names={'freq_hz','omega','n_cycles_used','I1','I3','I3_I1','delta1','delta3','Gp1','Gpp1','Gp3','Gpp3', ...
         'freqs_plot','strain_amp_plot','stress_amp_plot','settings','source','quality'};
-    FT=struct();for j=1:numel(names),FT.(names{j})=R.(names{j});end
+    FT=struct();for field=names,FT.(field{1})=R.(field{1});end
     for name={'input_settings','unit_conversion'},if isfield(R,name{1}),FT.(name{1})=R.(name{1});end,end
     % Keep the exact backend snapshot as well as the focused FT report.
     save(fullfile(out,[base '.mat']),'FT','R','-v7.3');
+    progress((j-.5)/total,sprintf('FT-LAOS spectra %d of %d · %s',j,total,e.Name));
     H=table([1;3],[R.I1;R.I3],[1;R.I3_I1],[R.delta1;R.delta3],[R.Gp1;R.Gp3],[R.Gpp1;R.Gpp3], ...
         'VariableNames',{'HarmonicOrder','Amplitude_Pa','AmplitudeOverI1','Phase_rad','GStorage_Pa','GLoss_Pa'});
     writetable(H,fullfile(out,[base '_harmonics.csv']));
@@ -192,19 +226,6 @@ end
 function b=safe_base(k,name)
 [~,stem]=fileparts(name);stem=regexprep(stem,'[^A-Za-z0-9._-]','_');if isempty(stem),stem='data';end
 b=sprintf('%03d_%s',k,stem(1:min(100,numel(stem))));
-end
-function result=remap_folders(result,old,new)
-if isstruct(result)
-    for k=1:numel(result)
-        for f=fieldnames(result(k))'
-            if strcmp(f{1},'outputFolder')&&startsWith(string(result(k).(f{1})),string(old))
-                result(k).(f{1})=strrep(result(k).(f{1}),old,new);
-            else,result(k).(f{1})=remap_folders(result(k).(f{1}),old,new);end
-        end
-    end
-elseif iscell(result)
-    for k=1:numel(result),result{k}=remap_folders(result{k},old,new);end
-end
 end
 function p=absolute_path(p)
 if isempty(p),error('MergedLAOS:ExportFolder','Choose an output folder.');end

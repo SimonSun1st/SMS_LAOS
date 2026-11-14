@@ -16,7 +16,9 @@ All suites listed below generate their own inputs. None requires access to an ex
 | `SMS_LAOS_app_test_batch` | A 48-file sweep, live progress, stopping and resuming work, repeated filenames, and malformed or missing input. |
 | `SMS_LAOS_app_test_workflow` | Independent FT and SD settings, shared units, the five analysis and export tabs, and invalidation after changes. |
 | `SMS_LAOS_app_test_units` | Seven input-unit combinations, numerical agreement with the reference routines, and a cycle-trimming boundary case. |
-| `SMS_LAOS_app_test_export` | Method-specific exports and their saved results. |
+| `SMS_LAOS_app_test_export` | Method-specific exports, saved results, progress reporting and cancellation before publishing. |
+| `SMS_LAOS_app_test_export_workspace` | Folder names for mixed imports, export scope, cancellation from the app and a subsequent normalised export. |
+| `SMS_LAOS_app_test_normalised` | Physical and normalised coordinates in saved figures and CSVs, shared stress references, zero-reference cases and cancellation. |
 | `SMS_LAOS_app_test_preview_export` | Measured waveforms, strain rate, and Lissajous exports. |
 | `SMS_LAOS_app_test_lissajous_components` | Reopens individual and overlay figures, compares their lines and CSVs with the measured and decomposed arrays, and checks exact file selections and missing or stale SD results. |
 
